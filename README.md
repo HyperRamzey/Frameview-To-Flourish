@@ -1,6 +1,6 @@
 ## FrameView → Flourish data builder
 
-Small toolkit to convert NVIDIA FrameView logs into a Flourish-ready wide CSV for “Bar chart race” and other timeline-style visualizations.
+Small toolkit to convert NVIDIA FrameView logs into a Flourish-ready CSV for “Bar chart race” and other timeline-style visualizations.
 
 ### Features
 - Combine multiple FrameView per-frame logs into one CSV (one row per test)
@@ -49,7 +49,7 @@ References:
 
 ## Конвертер данных FrameView → Flourish
 
-Набор инструментов для преобразования логов NVIDIA FrameView в CSV‑файл формата Flourish (“Bar chart race” и другие таймлайн‑шаблоны). В комплекте CLI и графический интерфейс (Tkinter).
+Набор инструментов для преобразования логов NVIDIA FrameView в CSV‑файл формата Flourish (“Bar chart race” и другие таймлайн‑шаблоны)
 
 ### Возможности
 - Объединение нескольких логов в один CSV (каждая строка — отдельный тест)
@@ -93,5 +93,6 @@ References:
 
 ### Ограничения
 - Десятичный разделитель — точка; запятая обрабатывается автоматически в большинстве случаев
+
 
 
