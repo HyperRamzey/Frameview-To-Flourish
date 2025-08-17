@@ -3,7 +3,7 @@
 Small toolkit to convert NVIDIA FrameView logs into a Flourish-ready CSV for “Bar chart race” and other timeline-style visualizations.
 
 ### Features
-- Combine multiple FrameView per-frame logs into one CSV (one row per test)
+- Combine multiple FrameView per-frame logs into one CSV
 - Choose metric:
   - avg_fps (default, from display time)
   - present_fps (from MsBetweenPresents)
@@ -14,19 +14,19 @@ Small toolkit to convert NVIDIA FrameView logs into a Flourish-ready CSV for “
   - count: frames per second (useful for debugging or variable refresh capture)
 - Compare mode: two logs → adds a third row with per‑second % difference relative to the first
 - Streams large CSVs; bins by whole seconds from each run’s first timestamp
-- Trims all rows to the shortest run length (as in “Graphs data manager”)
+- Trims all rows to the shortest run length
 
 ### GUI
-1. Pick input directory (default `in`), optionally adjust glob
+1. Pick input directory (default `in` folder in same folder script is run in), optionally adjust glob
 2. Select one or more logs
 3. Choose metric (or “custom column”) and FPS mode
-4. Optionally enable Compare (exactly two logs), choose “difference only”
-5. Choose output path and Generate
+4. Optionally enable Compare (exactly two logs), choose “difference only” if you want.
+5. Choose output path and filename and click Generate
 
 ### Flourish import
-1. Create a “Bar chart race” visualization
+1. Create a “Bar chart race” or any other visualization https://app.flourish.studio/projects
 2. Go to Data → Upload and select the generated CSV
-3. Ensure first column is bound as name/category; remaining columns as timeline
+3. Ensure first column is bound as name/category; remaining columns as timeline (should be automatic)
 4. Adjust “Timeline duration” to match the seconds of your test scene
 
 References:
@@ -52,7 +52,7 @@ References:
 Набор инструментов для преобразования логов NVIDIA FrameView в CSV‑файл формата Flourish (“Bar chart race” и другие таймлайн‑шаблоны)
 
 ### Возможности
-- Объединение нескольких логов в один CSV (каждая строка — отдельный тест)
+- Объединение нескольких логов в один CSV
 - Выбор метрики:
   - avg_fps (по умолчанию, на основе времени отображения кадра)
   - present_fps (на основе MsBetweenPresents)
@@ -63,17 +63,17 @@ References:
   - count: количество кадров в секунду
 - Режим сравнения: два лога → третья строка с %‑разницей по секундам относительно первого
 - Потоковая обработка больших CSV; группировка по секундам от первого кадра
-- Усечение всех рядов до длины самого короткого теста (как в “Graphs data manager”)
+- Усечение всех рядов до длины самого короткого теста
 
 ### Графический интерфейс (GUI)
-1. Выберите папку с логами (по умолчанию `in`), при необходимости укажите шаблон (glob)
+1. Выберите папку с логами (по умолчанию `in` в папке где находится скрипт), при необходимости укажите шаблон (glob)
 2. Отметьте нужные файлы
 3. Выберите метрику (или “custom column”) и режим FPS
 4. При необходимости включите сравнение (строго 2 лога), можно оставить только строку разницы
 5. Укажите путь сохранения и нажмите Generate
 
 ### Импорт в Flourish
-1. Создайте визуализацию “Bar chart race”
+1. Создайте визуализацию “Bar chart race” или любую другую https://app.flourish.studio/projects
 2. Вкладка Data → Upload, загрузите созданный CSV
 3. Первая колонка — имя/категория, остальные — шаги таймлайна
 4. В настройках выставьте длительность таймлайна в секундах
@@ -93,6 +93,7 @@ References:
 
 ### Ограничения
 - Десятичный разделитель — точка; запятая обрабатывается автоматически в большинстве случаев
+
 
 
 
