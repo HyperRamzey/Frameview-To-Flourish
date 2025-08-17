@@ -1,13 +1,14 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from flourish_maker import (
     MetricKind,
     compute_difference_series,
     compute_per_second_series,
     discover_input_files,
+    trim_csv_passthrough,
     write_flourish_wide_csv,
 )
 
@@ -79,6 +80,20 @@ LANG_TEXTS = {
         "tt_diff_only": "Output only the % difference row (no originals)",
         "tt_output": "Destination CSV file path",
         "tt_generate": "Create Flourish CSV",
+        "trim": "Trim",
+        "trim_start": "Start (sec):",
+        "trim_end": "End (sec):",
+        "trim_configure": "Configure…",
+        "trim_title": "Configure Trim Settings",
+        "trim_global": "Apply to all selected files",
+        "trim_individual": "Configure individually",
+        "trim_per_file": "Per-file Settings",
+        "tt_trim": (
+            "Trim seconds from the beginning and end of data. "
+            "Click Configure to set per-file settings."
+        ),
+        "trim_passthrough": "Trim File",
+        "tt_trim_passthrough": "Create trimmed copy of this file without conversion",
         "rename_title": "Rename label",
         "rename_prompt": (
             "Enter name of column (label) for:\n{file}\n"
@@ -150,6 +165,20 @@ LANG_TEXTS = {
         "tt_diff_only": "Вывести только строку %‑разницы (без исходных рядов)",
         "tt_output": "Путь к результирующему CSV",
         "tt_generate": "Создать Flourish CSV",
+        "trim": "Обрезка",
+        "trim_start": "Начало (сек):",
+        "trim_end": "Конец (сек):",
+        "trim_configure": "Настроить…",
+        "trim_title": "Настройки обрезки",
+        "trim_global": "Применить ко всем выбранным файлам",
+        "trim_individual": "Настроить индивидуально",
+        "trim_per_file": "Настройки для каждого файла",
+        "tt_trim": (
+            "Обрезать секунды с начала и конца данных. "
+            "Нажмите Настроить для индивидуальных настроек."
+        ),
+        "trim_passthrough": "Обрезать файл",
+        "tt_trim_passthrough": "Создать обрезанную копию файла без конвертации",
         "rename_title": "Переименовать подпись",
         "rename_prompt": (
             "Введите имя колонки (подписи) для:\n{file}\n"
@@ -225,6 +254,198 @@ def apply_dark_theme(root: tk.Tk) -> None:
         pass
 
 
+class TrimConfigDialog(tk.Toplevel):
+    def __init__(self, parent: tk.Tk, selected_files: List[Path], 
+                 trim_settings: dict, t: dict) -> None:
+        super().__init__(parent)
+        self.parent = parent
+        self.selected_files = selected_files
+        self.trim_settings = trim_settings
+        self.t = t
+        self.entries: dict[str, Tuple[tk.Entry, tk.Entry]] = {}
+        
+        self.title(self.t["trim_title"])
+        self.geometry("600x400")
+        self.resizable(True, True)
+        
+        # Make dialog modal
+        self.transient(parent)
+        self.grab_set()
+        
+        self._build_dialog()
+        
+        # Center on parent
+        self.geometry("+%d+%d" % (
+            parent.winfo_rootx() + 50,
+            parent.winfo_rooty() + 50
+        ))
+
+    def _build_dialog(self) -> None:
+        # Instructions
+        instruction = tk.Label(
+            self, 
+            text="Configure trim settings for each selected file:",
+            font=("TkDefaultFont", 10, "bold")
+        )
+        instruction.pack(pady=10)
+        
+        # Scrollable frame for file settings
+        canvas = tk.Canvas(self)
+        scrollbar = tk.Scrollbar(self, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Headers
+        header_frame = tk.Frame(scrollable_frame)
+        header_frame.pack(fill="x", padx=10, pady=5)
+        
+        tk.Label(header_frame, text="File", width=40, anchor="w").grid(
+            row=0, column=0, sticky="w"
+        )
+        tk.Label(header_frame, text=self.t["trim_start"], width=12).grid(
+            row=0, column=1
+        )
+        tk.Label(header_frame, text=self.t["trim_end"], width=12).grid(
+            row=0, column=2
+        )
+        tk.Label(header_frame, text="Action", width=12).grid(
+            row=0, column=3
+        )
+        
+        # File entries
+        for i, file_path in enumerate(self.selected_files):
+            file_frame = tk.Frame(scrollable_frame)
+            file_frame.pack(fill="x", padx=10, pady=2)
+            
+            # Get current settings or defaults
+            file_key = str(file_path)
+            if file_key in self.trim_settings:
+                start_val, end_val = self.trim_settings[file_key]
+            else:
+                start_val, end_val = 0.0, 0.0
+            
+            # File name
+            tk.Label(
+                file_frame, 
+                text=file_path.name, 
+                width=40, 
+                anchor="w"
+            ).grid(row=0, column=0, sticky="w")
+            
+            # Start trim entry
+            start_var = tk.DoubleVar(value=start_val)
+            start_entry = tk.Entry(file_frame, textvariable=start_var, width=10)
+            start_entry.grid(row=0, column=1, padx=5)
+            
+            # End trim entry  
+            end_var = tk.DoubleVar(value=end_val)
+            end_entry = tk.Entry(file_frame, textvariable=end_var, width=10)
+            end_entry.grid(row=0, column=2, padx=5)
+            
+            # Trim passthrough button
+            trim_btn = tk.Button(
+                file_frame,
+                text=self.t["trim_passthrough"],
+                command=lambda fp=file_path, se=start_entry, ee=end_entry: 
+                self._trim_file_passthrough(fp, se, ee)
+            )
+            trim_btn.grid(row=0, column=3, padx=5)
+            Tooltip(trim_btn, self.t["tt_trim_passthrough"])
+            
+            self.entries[file_key] = (start_entry, end_entry)
+        
+        canvas.pack(side="left", fill="both", expand=True, padx=10)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Buttons
+        button_frame = tk.Frame(self)
+        button_frame.pack(fill="x", padx=10, pady=10)
+        
+        tk.Button(
+            button_frame, 
+            text="OK", 
+            command=self._save_settings
+        ).pack(side="right", padx=5)
+        
+        tk.Button(
+            button_frame, 
+            text="Cancel", 
+            command=self.destroy
+        ).pack(side="right", padx=5)
+        
+        tk.Button(
+            button_frame, 
+            text="Reset All", 
+            command=self._reset_all
+        ).pack(side="left", padx=5)
+
+    def _save_settings(self) -> None:
+        # Save all settings
+        for file_key, (start_entry, end_entry) in self.entries.items():
+            try:
+                start_val = float(start_entry.get())
+                end_val = float(end_entry.get())
+                if start_val >= 0 and end_val >= 0:
+                    self.trim_settings[file_key] = (start_val, end_val)
+            except ValueError:
+                pass  # Skip invalid entries
+        self.destroy()
+
+    def _reset_all(self) -> None:
+        # Reset all entries to 0
+        for start_entry, end_entry in self.entries.values():
+            start_entry.delete(0, tk.END)
+            start_entry.insert(0, "0.0")
+            end_entry.delete(0, tk.END)
+            end_entry.insert(0, "0.0")
+
+    def _trim_file_passthrough(self, file_path: Path, start_entry: tk.Entry, 
+                              end_entry: tk.Entry) -> None:
+        """Trim a single file and save as new CSV without conversion."""
+        try:
+            start_val = float(start_entry.get())
+            end_val = float(end_entry.get())
+            
+            if start_val < 0 or end_val < 0:
+                messagebox.showerror("Error", "Trim values must be non-negative")
+                return
+            
+            # Generate output filename
+            stem = file_path.stem
+            suffix = file_path.suffix
+            if start_val > 0 or end_val > 0:
+                trim_suffix = f"_trim_{start_val:.1f}s_{end_val:.1f}s"
+            else:
+                trim_suffix = "_trim"
+            output_path = file_path.parent / f"{stem}{trim_suffix}{suffix}"
+            
+            # Perform the trim
+            success = trim_csv_passthrough(
+                file_path, output_path, start_val, end_val
+            )
+            
+            if success:
+                messagebox.showinfo(
+                    "Success", 
+                    f"Trimmed file saved as:\n{output_path.name}"
+                )
+            else:
+                messagebox.showerror(
+                    "Error", 
+                    "Failed to trim file. Check that the file has valid time data."
+                )
+                
+        except ValueError:
+            messagebox.showerror("Error", "Invalid trim values entered")
+
+
 class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -251,6 +472,12 @@ class App(tk.Tk):
         self.compare_mode_var = tk.BooleanVar(value=False)
         self.difference_only_var = tk.BooleanVar(value=False)
         self.output_var = tk.StringVar(value=str(Path("flourish_out.csv").resolve()))
+        
+        # Trim settings
+        self.trim_start_var = tk.DoubleVar(value=0.0)
+        self.trim_end_var = tk.DoubleVar(value=0.0)
+        # Per-file trim settings: file_path -> (start_sec, end_sec)
+        self.trim_settings: dict[str, Tuple[float, float]] = {}
 
         self._build_ui()
         self._refresh_file_list()
@@ -379,6 +606,34 @@ class App(tk.Tk):
         Tooltip(self.chk_compare, self.t["tt_enable_compare"])
         Tooltip(self.chk_diff_only, self.t["tt_diff_only"])
 
+        # Trim
+        trim_frame = tk.LabelFrame(self, text=self.t["trim"])
+        trim_frame.pack(fill="x", padx=10, pady=8)
+        
+        tk.Label(trim_frame, text=self.t["trim_start"]).grid(
+            row=0, column=0, sticky="w", padx=8, pady=6
+        )
+        tk.Entry(
+            trim_frame, textvariable=self.trim_start_var, width=10
+        ).grid(row=0, column=1, sticky="w")
+        
+        tk.Label(trim_frame, text=self.t["trim_end"]).grid(
+            row=0, column=2, sticky="w", padx=8
+        )
+        tk.Entry(
+            trim_frame, textvariable=self.trim_end_var, width=10
+        ).grid(row=0, column=3, sticky="w")
+        
+        self.trim_configure_btn = tk.Button(
+            trim_frame, 
+            text=self.t["trim_configure"], 
+            command=self._configure_trim
+        )
+        self.trim_configure_btn.grid(row=0, column=4, sticky="w", padx=8)
+        
+        # Tooltip for trim controls
+        Tooltip(trim_frame, self.t["tt_trim"])
+
         # Output
         out_frame = tk.LabelFrame(self, text=self.t["output"])
         out_frame.pack(fill="x", padx=10, pady=8)
@@ -501,11 +756,15 @@ class App(tk.Tk):
                     raise ValueError("Compare mode requires exactly 2 selected logs")
 
                 rows = []
+                trim_start_a, trim_end_a = self._get_trim_settings(selected[0])
+                trim_start_b, trim_end_b = self._get_trim_settings(selected[1])
                 name_a, series_a = compute_per_second_series(
-                    selected[0], metric, fps_mode=fps_mode
+                    selected[0], metric, fps_mode=fps_mode,
+                    trim_start=trim_start_a, trim_end=trim_end_a
                 )
                 name_b, series_b = compute_per_second_series(
-                    selected[1], metric, fps_mode=fps_mode
+                    selected[1], metric, fps_mode=fps_mode,
+                    trim_start=trim_start_b, trim_end=trim_end_b
                 )
                 lbls = getattr(self, "custom_labels", {})
                 name_a = lbls.get(str(selected[0]), name_a)
@@ -525,8 +784,10 @@ class App(tk.Tk):
                     raise ValueError("Select at least one log to process")
                 rows = []
                 for p in selected:
+                    trim_start, trim_end = self._get_trim_settings(p)
                     name, series = compute_per_second_series(
-                        p, metric, fps_mode=fps_mode
+                        p, metric, fps_mode=fps_mode,
+                        trim_start=trim_start, trim_end=trim_end
                     )
                     # Apply user-provided label if present
                     lbls = getattr(self, "custom_labels", {})
@@ -538,6 +799,24 @@ class App(tk.Tk):
             messagebox.showinfo(self.t["done_file"], str(out_path))
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Error", str(exc))
+
+    def _configure_trim(self) -> None:
+        # Open trim configuration dialog
+        selected_paths = self._read_selected_files()
+        if not selected_paths:
+            messagebox.showinfo("Info", "No files selected")
+            return
+            
+        # Create trim configuration dialog
+        dialog = TrimConfigDialog(self, selected_paths, self.trim_settings, self.t)
+        self.wait_window(dialog)
+
+    def _get_trim_settings(self, file_path: Path) -> Tuple[float, float]:
+        """Get trim settings for a specific file (start, end)"""
+        file_key = str(file_path)
+        if file_key in self.trim_settings:
+            return self.trim_settings[file_key]
+        return self.trim_start_var.get(), self.trim_end_var.get()
 
     def _rename_selected(self) -> None:
         # Ask for custom labels per selected file

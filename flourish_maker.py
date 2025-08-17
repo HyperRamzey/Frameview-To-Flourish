@@ -127,16 +127,25 @@ def compute_per_second_series(
     file_path: Path,
     metric: str,
     fps_mode: str = "per-frame-mean",
+    trim_start: float = 0.0,
+    trim_end: float = 0.0,
 ) -> Tuple[str, List[Optional[float]]]:
     """
     Streams the CSV, computes a per-second series for the chosen metric.
     Returns (row_name, series) where series is a list where index 0 corresponds
     to second 1.
+    
+    Args:
+        file_path: Path to the CSV file
+        metric: Metric to compute
+        fps_mode: "per-frame-mean" or "count"
+        trim_start: Seconds to trim from the beginning
+        trim_end: Seconds to trim from the end
     """
     sums: List[float] = []  # For FPS: sum ms; for others: sum values
     counts: List[int] = []
     row_name: str = file_path.stem
-    base_time: Optional[float] = None
+    max_time: Optional[float] = None
 
     with file_path.open("r", newline="", encoding="utf-8", errors="ignore") as f:
         reader = csv.reader(f)
@@ -162,18 +171,48 @@ def compute_per_second_series(
         metric_col, transform_ms_to_fps = resolve_metric_column(header, metric)
         m_idx = header.index(metric_col)
 
+        # First pass: find time range to determine actual trim bounds
+        all_rows = [first_row]
+        for row in reader:
+            all_rows.append(row)
+
+        # Find time bounds
+        valid_times = []
+        for row in all_rows:
+            if t_idx >= len(row):
+                continue
+            t = parse_float(row[t_idx])
+            if t is not None:
+                valid_times.append(t)
+
+        if not valid_times:
+            return (row_name, [])
+
+        min_time = min(valid_times)
+        max_time = max(valid_times)
+
+        # Calculate effective trim bounds
+        effective_start = min_time + trim_start
+        effective_end = max_time - trim_end
+        
+        if effective_start >= effective_end:
+            # Invalid trim range
+            return (row_name, [])
+
         def process_row(row: List[str]):
-            nonlocal base_time, sums, counts
+            nonlocal sums, counts
             if t_idx >= len(row) or m_idx >= len(row):
                 return
             t = parse_float(row[t_idx])
             if t is None:
                 return
-            if base_time is None:
-                base_time = t
-            rel_t = t - base_time
+            
+            # Apply trimming
+            if t < effective_start or t > effective_end:
+                return
+                
+            rel_t = t - effective_start  # Adjust to trimmed start
             if rel_t < 0:
-                # Should not happen, but guard anyway
                 rel_t = 0.0
             # 0-based index for second buckets
             sec_idx = int(math.floor(rel_t))
@@ -198,9 +237,8 @@ def compute_per_second_series(
             sums[sec_idx] += value
             counts[sec_idx] += 1
 
-        # Process the first row and the rest
-        process_row(first_row)
-        for row in reader:
+        # Process all rows
+        for row in all_rows:
             process_row(row)
 
     # Finalize series: average per second (or use count if fps_mode == 'count')
@@ -300,6 +338,77 @@ def compute_difference_series(
     return diff
 
 
+def trim_csv_passthrough(
+    input_path: Path,
+    output_path: Path,
+    trim_start: float = 0.0,
+    trim_end: float = 0.0,
+) -> bool:
+    """
+    Trim a CSV file by time range without converting to Flourish format.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        with input_path.open("r", newline="", encoding="utf-8", errors="ignore") as f:
+            reader = csv.reader(f)
+            try:
+                header = next(reader)
+            except StopIteration:
+                return False
+
+            # Find TimeInSeconds column
+            try:
+                t_idx = header.index("TimeInSeconds")
+            except ValueError:
+                return False
+
+            # Read all rows to determine time bounds
+            all_rows = []
+            for row in reader:
+                all_rows.append(row)
+
+            # Find time bounds
+            valid_times = []
+            for row in all_rows:
+                if t_idx >= len(row):
+                    continue
+                t = parse_float(row[t_idx])
+                if t is not None:
+                    valid_times.append(t)
+
+            if not valid_times:
+                return False
+
+            min_time = min(valid_times)
+            max_time = max(valid_times)
+
+            # Calculate effective trim bounds
+            effective_start = min_time + trim_start
+            effective_end = max_time - trim_end
+
+            if effective_start >= effective_end:
+                return False
+
+            # Write trimmed CSV
+            with output_path.open("w", newline="", encoding="utf-8") as out_f:
+                writer = csv.writer(out_f)
+                writer.writerow(header)
+
+                for row in all_rows:
+                    if t_idx >= len(row):
+                        continue
+                    t = parse_float(row[t_idx])
+                    if t is None:
+                        continue
+                    if effective_start <= t <= effective_end:
+                        writer.writerow(row)
+
+            return True
+
+    except Exception:
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -357,6 +466,18 @@ def main():
         ),
     )
     parser.add_argument(
+        "--trim-start",
+        type=float,
+        default=0.0,
+        help="Seconds to trim from the beginning of each log (default: 0.0)",
+    )
+    parser.add_argument(
+        "--trim-end",
+        type=float,
+        default=0.0,
+        help="Seconds to trim from the end of each log (default: 0.0)",
+    )
+    parser.add_argument(
         "--compare",
         type=str,
         nargs=2,
@@ -390,7 +511,11 @@ def main():
             if not p.exists():
                 raise FileNotFoundError(f"Input not found: {p}")
             name, series = compute_per_second_series(
-                p, args.metric, fps_mode=args.fps_mode
+                p, 
+                args.metric, 
+                fps_mode=args.fps_mode,
+                trim_start=args.trim_start,
+                trim_end=args.trim_end,
             )
             series_data.append((name, series))
         # Compute difference
@@ -413,7 +538,11 @@ def main():
             if not p.exists():
                 raise FileNotFoundError(f"Input not found: {p}")
             name, series = compute_per_second_series(
-                p, args.metric, fps_mode=args.fps_mode
+                p, 
+                args.metric, 
+                fps_mode=args.fps_mode,
+                trim_start=args.trim_start,
+                trim_end=args.trim_end,
             )
             rows.append((name, series))
 
